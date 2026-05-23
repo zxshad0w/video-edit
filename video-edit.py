@@ -16,12 +16,11 @@ except ImportError:
 # Инициализируем аудио-микшер Pygame для работы со звуком в реальном времени
 pygame.mixer.init()
 
-
 class PyCutProApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("PyCut Pro — Фикс Форматов и Стабильный Экспорт")
+        self.root.title("PyCut Pro — Оптимизированный Движок Монтажа")
 
         # Ограничения и геометрия окна
         self.root.geometry("1150x850")
@@ -111,7 +110,6 @@ class PyCutProApp:
         )
         top_paned.add(self.left_panel, width=380)
 
-        # Добавим Canvas и Scrollbar для левой панели, чтобы всё гарантированно помещалось
         left_canvas = tk.Canvas(self.left_panel, bg="#18181c", highlightthickness=0)
         left_scrollbar = ttk.Scrollbar(self.left_panel, orient="vertical", command=left_canvas.yview)
         scroll_frame = tk.Frame(left_canvas, bg="#18181c", padx=5)
@@ -238,7 +236,7 @@ class PyCutProApp:
         self.speed_combo.pack(fill="x", pady=2)
         self.speed_combo.bind("<<ComboboxSelected>>", self.on_param_changed)
 
-        # 5. Новое: Система наложений (Текст / Изображения / GIF)
+        # 5. Система наложений (Текст / Изображения / GIF)
         overlay_mgmt_frame = tk.LabelFrame(
             scroll_frame,
             text=" 5. Визуальные эффекты и слои ",
@@ -274,6 +272,7 @@ class PyCutProApp:
         )
         self.quality_combo.set("Исходное")
         self.quality_combo.pack(fill="x", pady=2)
+        self.quality_combo.bind("<<ComboboxSelected>>", self.on_param_changed)
 
         self.lbl_media_info = tk.Label(
             scroll_frame,
@@ -297,7 +296,6 @@ class PyCutProApp:
         )
         self.video_canvas.pack(side="left", fill="both", expand=True)
 
-        # Вертикальный ползунок громкости превью
         self.preview_volume_slider = tk.Scale(
             preview_container,
             from_=100,
@@ -383,21 +381,51 @@ class PyCutProApp:
         self.time_slider.pack(fill="x", expand=True)
 
     # ==========================================
-    # ЯДРО ОБРАБОТКИ, КРОПА И СЛОЕВ
+    # ОПТИМИЗИРОВАННОЕ ЯДРО СБОРКИ И СЛОЕВ
     # ==========================================
 
     def apply_modifications(self):
-        """Собирает фрагменты, режет формат и накладывает дополнительные слои (Текст/Фото/GIF)"""
+        """Собирает проект. Изменение разрешения (качества) теперь происходит ТУТ, до слоев"""
         if not self.clip_chain:
             return
 
         try:
+            # Очищаем старые файловые маски, чтобы освободить диск
+            for temp_f in self.temp_files_to_clean:
+                if os.path.exists(temp_f):
+                    try:
+                        os.remove(temp_f)
+                    except:
+                        pass
+            self.temp_files_to_clean.clear()
+
             if len(self.clip_chain) > 1:
                 base_clip = concatenate_videoclips(self.clip_chain, method="compose")
             else:
                 base_clip = self.clip_chain[0]
 
-            # Кадрирование соотношения сторон
+            # ОПТИМИЗАЦИЯ ФИКСА: Меняем качество ДО добавления наложений
+            quality = self.quality_combo.get()
+            if "1080p" in quality:
+                h = 1080
+                w = int(base_clip.w * (h / base_clip.h))
+                w = w - (w % 2)
+                base_clip = base_clip.resized(width=w, height=h) if hasattr(base_clip, "resized") else base_clip.resize(
+                    width=w, height=h)
+            elif "720p" in quality:
+                h = 720
+                w = int(base_clip.w * (h / base_clip.h))
+                w = w - (w % 2)
+                base_clip = base_clip.resized(width=w, height=h) if hasattr(base_clip, "resized") else base_clip.resize(
+                    width=w, height=h)
+            elif "480p" in quality:
+                h = 480
+                w = int(base_clip.w * (h / base_clip.h))
+                w = w - (w % 2)
+                base_clip = base_clip.resized(width=w, height=h) if hasattr(base_clip, "resized") else base_clip.resize(
+                    width=w, height=h)
+
+            # Кадрирование соотношения сторон (Формат)
             ratio_val = self.ratio_combo.get()
             if ratio_val and ratio_val != "Original":
                 if "16:9" in ratio_val:
@@ -433,6 +461,13 @@ class PyCutProApp:
                     else:
                         base_clip = base_clip.crop(x1=x1, y1=y1, x2=x2, y2=y2)
 
+            # Гарантируем чётные размеры (условие кодека h264)
+            if base_clip.w % 2 != 0 or base_clip.h % 2 != 0:
+                w = base_clip.w - (base_clip.w % 2)
+                h = base_clip.h - (base_clip.h % 2)
+                base_clip = base_clip.resized(width=w, height=h) if hasattr(base_clip, "resized") else base_clip.resize(
+                    width=w, height=h)
+
             # Настройка звука видеофрагмента
             if self.mute_original:
                 base_clip = base_clip.without_audio()
@@ -454,34 +489,39 @@ class PyCutProApp:
 
                 for idx, ov in enumerate(self.overlay_list):
                     try:
-                        # Фиксация лимитов времени наложения под хронометраж видео
                         start_t = min(ov['start'], base_clip.duration)
                         dur_t = min(ov['duration'], base_clip.duration - start_t)
                         if dur_t <= 0:
                             continue
 
                         if ov['type'] == 'text':
-                            # Безопасный рендеринг текста через PIL без ImageMagick
                             font_size = ov['size']
                             text = ov['text']
                             color = ov['color']
                             font_path = ov['font']
 
+                            # ФИКС ТЕКСТА: Динамическое подключение векторного шрифта Arial вместо статичного load_default
                             try:
-                                font = ImageFont.truetype(font_path,
-                                                          font_size) if font_path else ImageFont.load_default()
-                            except:
-                                font = ImageFont.load_default()
+                                if font_path and os.path.exists(font_path):
+                                    font = ImageFont.truetype(font_path, font_size)
+                                else:
+                                    font = ImageFont.truetype("arial.ttf", font_size)
+                            except Exception:
+                                try:
+                                    font = ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", font_size)
+                                except Exception:
+                                    font = ImageFont.load_default()  # Крайний случай
 
+                            # Расчет корректных габаритов подложки текста
                             im_dummy = Image.new("RGBA", (1, 1))
                             draw_dummy = ImageDraw.Draw(im_dummy)
                             bbox = draw_dummy.textbbox((0, 0), text, font=font)
-                            tw = (bbox[2] - bbox[0]) + 30
-                            th = (bbox[3] - bbox[1]) + 30
+                            tw = (bbox[2] - bbox[0]) + 40
+                            th = (bbox[3] - bbox[1]) + 40
 
                             txt_img = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
                             draw = ImageDraw.Draw(txt_img)
-                            draw.text((15, 15), text, fill=color, font=font)
+                            draw.text((20 - bbox[0], 20 - bbox[1]), text, fill=color, font=font)
 
                             t_path = f"temp_layer_{idx}_{uuid.uuid4().hex[:6]}.png"
                             txt_img.save(t_path)
@@ -496,20 +536,29 @@ class PyCutProApp:
                             path = ov['path']
                             if path.lower().endswith('.gif'):
                                 layer_clip = VideoFileClip(path, has_mask=True)
+                                if layer_clip.w > base_clip.w or layer_clip.h > base_clip.h:
+                                    target_w = int(base_clip.w * 0.35)
+                                    if hasattr(layer_clip, "resized"):
+                                        layer_clip = layer_clip.resized(width=target_w)
+                                    else:
+                                        layer_clip = layer_clip.resize(width=target_w)
                             else:
-                                layer_clip = ImageClip(path)
+                                # ФИКС ФОТО: Переносим ресайз в PIL на лету, минуя сбойный модуль Resize в MoviePy
+                                with Image.open(path) as img_raw:
+                                    img_w, img_h = img_raw.size
+                                    if img_w > base_clip.w or img_h > base_clip.h:
+                                        target_w = int(base_clip.w * 0.35)
+                                        target_h = int(img_h * (target_w / img_w))
+                                        img_raw = img_raw.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+                                    m_path = f"temp_media_{idx}_{uuid.uuid4().hex[:6]}.png"
+                                    img_raw.save(m_path)
+                                    self.temp_files_to_clean.append(m_path)
+
+                                layer_clip = ImageClip(m_path)
 
                             layer_clip = layer_clip.with_start(start_t).with_duration(dur_t)
                             layer_clip = layer_clip.with_position(ov['position'])
-
-                            # Умный ресайз: если наложение больше видео, ужимаем его до 35% от ширины экрана
-                            if layer_clip.w > base_clip.w or layer_clip.h > base_clip.h:
-                                target_w = int(base_clip.w * 0.35)
-                                if hasattr(layer_clip, "resized"):
-                                    layer_clip = layer_clip.resized(width=target_w)
-                                else:
-                                    layer_clip = layer_clip.resize(width=target_w)
-
                             comp_clips.append(layer_clip)
 
                     except Exception as e_ov:
@@ -529,7 +578,7 @@ class PyCutProApp:
                 fg="#00febe",
             )
 
-            # Генерация аудиофайла предпросмотра
+            # Обновление фонового аудио превью
             try:
                 if pygame.mixer.music.get_busy():
                     pygame.mixer.music.stop()
@@ -549,11 +598,10 @@ class PyCutProApp:
             print(f"Ошибка сборки проекта: {e}")
 
     # ==========================================
-    # ИНТЕРФЕЙС ОКНА НАЛОЖЕНИЙ (ДОБАВЛЕНО)
+    # ИНТЕРФЕЙС ОКНА НАЛОЖЕНИЙ
     # ==========================================
 
     def open_overlay_window(self):
-        """Открывает отдельное независимое окно для работы с текстом, фото и GIF библиотеками"""
         if not self.video_clip:
             return messagebox.showerror("Ошибка", "Сначала импортируйте исходное видео!")
 
@@ -564,7 +612,6 @@ class PyCutProApp:
         ov_win.transient(self.root)
         ov_win.grab_set()
 
-        # Левая часть окна: Список активных слоев
         list_frame = tk.Frame(ov_win, bg="#18181c", width=260)
         list_frame.pack(side="left", fill="both", expand=False, padx=15, pady=15)
 
@@ -596,18 +643,16 @@ class PyCutProApp:
         ttk.Button(list_frame, text="🗑 Удалить выбранный слой", style="Cut.TButton", command=delete_layer).pack(
             fill="x")
 
-        # Правая часть окна: Панель создания с вкладками
         tabs_frame = tk.Frame(ov_win, bg="#18181c")
         tabs_frame.pack(side="right", fill="both", expand=True, padx=15, pady=15)
 
         notebook = ttk.Notebook(tabs_frame)
         notebook.pack(fill="both", expand=True)
 
-        # ВКЛАДКА 1: ТЕКСТОВАЯ БИБЛИОТЕКА
+        # ВКЛАДКА ТЕКСТА
         txt_tab = tk.Frame(notebook, bg="#202024", padx=12, pady=12)
         notebook.add(txt_tab, text=" 📝 Добавить Текст ")
 
-        # Мини-библиотека быстрых шаблонов текста
         lib_frame = tk.Frame(txt_tab, bg="#202024")
         lib_frame.pack(fill="x", pady=(0, 10))
         tk.Label(lib_frame, text="Библиотека стилей:", bg="#202024", fg="#a0a0a5").pack(side="left")
@@ -648,7 +693,6 @@ class PyCutProApp:
 
         combo_lib.bind("<<ComboboxSelected>>", apply_template)
 
-        # Кастомный шрифт
         font_frame = tk.Frame(txt_tab, bg="#202024")
         font_frame.pack(fill="x", pady=6)
         tk.Label(font_frame, text="Шрифт (.ttf):", bg="#202024", fg="white").pack(side="left")
@@ -665,7 +709,6 @@ class PyCutProApp:
 
         ttk.Button(font_frame, text="Обзор", style="CapCut.TButton", command=load_ttf).pack(side="right")
 
-        # Настройки цвета и размера
         settings_frame = tk.Frame(txt_tab, bg="#202024")
         settings_frame.pack(fill="x", pady=6)
 
@@ -690,7 +733,6 @@ class PyCutProApp:
         sp_size.insert(0, "45")
         sp_size.grid(row=0, column=4)
 
-        # Тайминг и позиция текста
         t_frame = tk.Frame(txt_tab, bg="#202024")
         t_frame.pack(fill="x", pady=8)
 
@@ -711,14 +753,21 @@ class PyCutProApp:
 
         def save_txt_layer():
             if not ent_txt.get(): return
+            try:
+                st = float(en_start.get() or 0.0)
+                du = float(en_dur.get() or 5.0)
+                sz = int(sp_size.get() or 45)
+            except ValueError:
+                return messagebox.showerror("Ошибка", "Убедитесь в правильности числовых полей.")
+
             self.overlay_list.append({
                 'type': 'text',
                 'text': ent_txt.get(),
                 'font': lbl_f_path.font_val,
                 'color': color_lbl.color_val,
-                'size': int(sp_size.get()),
-                'start': float(en_start.get() or 0.0),
-                'duration': float(en_dur.get() or 5.0),
+                'size': sz,
+                'start': st,
+                'duration': du,
                 'position': cb_pos.get()
             })
             refresh_box()
@@ -728,17 +777,17 @@ class PyCutProApp:
         ttk.Button(txt_tab, text="➕ Наложить текст на видео", style="Export.TButton", command=save_txt_layer).pack(
             fill="x", side="bottom")
 
-        # ВКЛАДКА 2: ИМПОРТ ФОТО / GIF
+        # ВКЛАДКА МЕДИА (ФОТО/GIF)
         media_tab = tk.Frame(notebook, bg="#202024", padx=12, pady=12)
         notebook.add(media_tab, text=" 🖼 Наложение ФОТО / GIF ")
 
         media_file_frame = tk.Frame(media_tab, bg="#202024")
         media_file_frame.pack(fill="x", pady=(0, 10))
 
-        tk.Label(media_file_frame, text="Файл наложения (Фотографий/Картинок или анимаций GIF):", bg="#202024",
-                 fg="white").pack(anchor="w", pady=2)
-        lbl_m_path = tk.Label(media_file_frame, text="Файл не выбран (.png, .jpg, .gif)", bg="#252529", fg="#a0a0a5",
-                              anchor="w", padx=6, height=2)
+        tk.Label(media_file_frame, text="Файл наложения (.png, .jpg, .gif):", bg="#202024", fg="white").pack(anchor="w",
+                                                                                                             pady=2)
+        lbl_m_path = tk.Label(media_file_frame, text="Файл не выбран", bg="#252529", fg="#a0a0a5", anchor="w", padx=6,
+                              height=2)
         lbl_m_path.pack(fill="x", side="left", expand=True, pady=4)
         lbl_m_path.file_val = ""
 
@@ -751,7 +800,6 @@ class PyCutProApp:
         ttk.Button(media_file_frame, text="📁 Выбрать файл", style="CapCut.TButton", command=load_media).pack(
             side="right", padx=5)
 
-        # Настройки тайминга и координат для фото/гиф
         m_t_frame = tk.Frame(media_tab, bg="#202024")
         m_t_frame.pack(fill="x", pady=10)
 
@@ -775,11 +823,17 @@ class PyCutProApp:
         def save_media_layer():
             if not lbl_m_path.file_val:
                 return messagebox.showwarning("Файл", "Сначала выберите файл изображения или GIF!")
+            try:
+                mst = float(en_m_start.get() or 0.0)
+                mdu = float(en_m_dur.get() or 5.0)
+            except ValueError:
+                return messagebox.showerror("Ошибка", "Проверьте правильность числовых полей.")
+
             self.overlay_list.append({
                 'type': 'media',
                 'path': lbl_m_path.file_val,
-                'start': float(en_m_start.get() or 0.0),
-                'duration': float(en_m_dur.get() or 5.0),
+                'start': mst,
+                'duration': mdu,
                 'position': cb_m_pos.get()
             })
             refresh_box()
@@ -789,11 +843,10 @@ class PyCutProApp:
         ttk.Button(media_tab, text="➕ Применить фото / GIF слой", style="Export.TButton",
                    command=save_media_layer).pack(fill="x", side="bottom")
 
-        # Стартовая отрисовка активных элементов
         refresh_box()
 
     # ==========================================
-    # НАБОР ФУНКЦИЙ НАВЕРАНИЯ И ПЛЕЕРА
+    # СЛУЖЕБНЫЙ ИНСТРУМЕНТАРИЙ ПЛЕЕРА
     # ==========================================
 
     def split_active_clip(self):
@@ -993,7 +1046,7 @@ class PyCutProApp:
         self.root.after(10, self.update_player_loop)
 
     # ==========================================
-    # НАДЕЖНЫЙ ЭКСПОРТ
+    # СТАБИЛЬНЫЙ ЧИСТЫЙ ЭКСПОРТ ПРОЕКТА
     # ==========================================
 
     def export_project(self):
@@ -1010,37 +1063,8 @@ class PyCutProApp:
 
         self.pause_video()
 
-        quality = self.quality_combo.get()
+        # Весь проект уже идеально смасштабирован в ядре apply_modifications!
         export_clip = self.modified_clip
-
-        if "1080p" in quality:
-            h = 1080
-            w = int(export_clip.w * (h / export_clip.h))
-            w = w - (w % 2)
-            export_clip = export_clip.resized(width=w, height=h) if hasattr(export_clip,
-                                                                            "resized") else export_clip.resize(width=w,
-                                                                                                               height=h)
-        elif "720p" in quality:
-            h = 720
-            w = int(export_clip.w * (h / export_clip.h))
-            w = w - (w % 2)
-            export_clip = export_clip.resized(width=w, height=h) if hasattr(export_clip,
-                                                                            "resized") else export_clip.resize(width=w,
-                                                                                                               height=h)
-        elif "480p" in quality:
-            h = 480
-            w = int(export_clip.w * (h / export_clip.h))
-            w = w - (w % 2)
-            export_clip = export_clip.resized(width=w, height=h) if hasattr(export_clip,
-                                                                            "resized") else export_clip.resize(width=w,
-                                                                                                               height=h)
-        else:
-            if export_clip.w % 2 != 0 or export_clip.h % 2 != 0:
-                w = export_clip.w - (export_clip.w % 2)
-                h = export_clip.h - (export_clip.h % 2)
-                export_clip = export_clip.resized(width=w, height=h) if hasattr(export_clip,
-                                                                                "resized") else export_clip.resize(
-                    width=w, height=h)
 
         info_window = tk.Toplevel(self.root)
         info_window.title("Экспорт...")
@@ -1049,6 +1073,7 @@ class PyCutProApp:
         info_window.transient(self.root)
         info_window.grab_set()
 
+        quality = self.quality_combo.get()
         tk.Label(
             info_window,
             text=f"🎬 Идет компиляция фильма...\nПрофиль: {quality}\nПожалуйста, подождите.",
@@ -1057,6 +1082,7 @@ class PyCutProApp:
         self.root.update()
 
         try:
+            # Безопасный экспорт без каскадного ресайза масок
             export_clip.write_videofile(
                 save_path, codec="libx264", audio_codec="aac", fps=24, threads=4
             )
@@ -1068,7 +1094,6 @@ class PyCutProApp:
             messagebox.showerror("Ошибка FFMPEG", f"Ошибка рендеринга: {str(e)}")
 
     def on_closing(self):
-        """Полная деструкция и очистка системы при закрытии"""
         self.is_playing = False
         try:
             pygame.mixer.music.stop()
@@ -1077,14 +1102,12 @@ class PyCutProApp:
         except:
             pass
 
-        # Удаляем временные файлы треков
         if os.path.exists(self.temp_audio_path):
             try:
                 os.remove(self.temp_audio_path)
             except:
                 pass
 
-        # Удаляем временные маски текста
         for temp_f in self.temp_files_to_clean:
             if os.path.exists(temp_f):
                 try:
